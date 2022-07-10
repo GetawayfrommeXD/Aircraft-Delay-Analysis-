@@ -1,0 +1,123 @@
+---
+title: 'Question 2: Do older planes suffer more delays? '
+author: "Ren Ern"
+date: '2022-03-22'
+output:
+  html_document:
+    theme: darkly
+    df_print: paged
+---
+### Loading essential libraries
+```{r, warning = FALSE, message = FALSE}
+library(DBI)
+library(RODBC)
+library(odbc)
+library(dbplyr)
+pacman::p_load(pacman, dplyr, GGally, ggplot2, ggthemes, 
+  ggvis, httr, lubridate, plotly, rio, rmarkdown, shiny, 
+  stringr, tidyr, psych) 
+library(ggpubr)
+con <- DBI::dbConnect(odbc::odbc(), "PostgreSQL30")
+```
+
+
+
+
+
+##### A reference connection to the table dff (as seen in the data cleaning phase) is created.
+```{r, warning = FALSE, message = FALSE}
+db <- tbl(con, "dff") #taking a reference to the remote database
+db
+```
+
+
+
+
+
+
+## Exploring relationship between age and departure delay
+```{r, warning = FALSE, message = FALSE}
+age_delay <- db %>% filter(departure_delay>0)%>% 
+  mutate(age = year(scheduled_departure) - as.integer(year))%>% 
+  group_by(age) %>% 
+  summarize(Average_Departure_Delay = mean(departure_delay)) %>% collect()
+
+sp <- ggscatter(age_delay, x = "age", y = "Average_Departure_Delay",
+   add = "reg.line",  # Add regressin line
+   add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
+   conf.int = TRUE # Add confidence interval
+   )
+# Add correlation coefficient
+sp + stat_cor(method = "pearson", label.x = 3, label.y = 30)
+```
+
+##### Generally, older planes do suffer greater departure delays, as seen from the graph. The relationship between two variables is generally considered strong when their r value is larger than 0.7. The r value for this relationship is 0.37, indicating a fairly strong positive correlation.
+
+
+
+
+
+
+
+## Exploring relationship between age and departure delay, with age caterogies 
+##### According to the standards of the airline industry, a plane is considered new when it is less of 10 years, standard age when it is more then 10 and less then 20 years old, and old after 20 ##### years+. The planes are categorized into "new", "standard" and "old". The relationship between age and delays are then explored individually for each category.
+```{r, warning = FALSE, message = FALSE}
+age_cat_delay <- db %>% filter(departure_delay>0)%>% 
+  mutate(age = year(scheduled_departure) - as.integer(year))%>% 
+  mutate(AgeStatus = case_when(age<10 ~ "New", age<20 & age>=10 ~ "Standard",  age>=20 ~ "Old"))%>% 
+  group_by(age, AgeStatus) %>% 
+  summarize(Average_Departure_Delay = mean(departure_delay)) %>% collect()
+
+sp <- ggscatter(age_cat_delay, x = "age", y = "Average_Departure_Delay",
+   color = "AgeStatus", palette = "jco",
+   add = "reg.line", conf.int = TRUE)
+sp + stat_cor(aes(color = AgeStatus), label.x = 3)
+```
+
+##### Suprisingly, the correlation between delays and age of new aircrafts is the strongest, with an R value of 0.65.
+##### For standard aircrafts, the correlation is negative, with an R value of = 0.7.
+
+
+
+
+
+
+## Exploring relationship between age and arrival delay
+```{r, warning = FALSE, message = FALSE}
+age_arrival_delay <- db %>% filter(departure_delay>0)%>% 
+  mutate(age = year(scheduled_departure) - as.integer(year))%>% 
+  group_by(age) %>% 
+  summarize(Average_Arrival_Delay = mean(arrival_delay)) %>% collect()
+
+sp <- ggscatter(age_arrival_delay, x = "age", y = "Average_Arrival_Delay",
+   add = "reg.line",  # Add regressin line
+   add.params = list(color = "blue", fill = "lightgray"), # Customize reg. line
+   conf.int = TRUE # Add confidence interval
+   )
+# Add correlation coefficient
+sp + stat_cor(method = "pearson", label.x = 3, label.y = 30)
+```
+
+##### Generally, older planes do suffer greater arrival delays, as seen from the graph. TThe r value for this relationship is 0.5, indicating a strong positive correlation.
+
+
+
+
+
+
+
+## Exploring relationship between age and arrival delay, with age caterogies 
+```{r, warning = FALSE, message = FALSE}
+age_cat_delay <- db %>% filter(departure_delay>0)%>% 
+  mutate(age = year(scheduled_departure) - as.integer(year))%>% 
+  mutate(AgeStatus = case_when(age<10 ~ "New",age<20 & age>=10 ~ "Standard",age>=20 ~ "Old"))%>% 
+  group_by(age, AgeStatus) %>% 
+  summarize(Average_Arrival_Delay = mean(arrival_delay)) %>% collect()
+
+sp <- ggscatter(age_cat_delay, x = "age", y = "Average_Arrival_Delay",
+   color = "AgeStatus", palette = "jco",
+   add = "reg.line", conf.int = TRUE)
+sp + stat_cor(aes(color = AgeStatus), label.x = 3)
+```
+
+##### The age of the new aircrafts have a very strong correlation with arrival delays, with an R value of 0.69. This does not hold true for standard and old planes.

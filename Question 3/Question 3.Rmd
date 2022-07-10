@@ -1,0 +1,176 @@
+---
+title: "Question 3: How does the number of people flying between different locations change over time?"
+author: "Ren Ern"
+date: '2022-03-22'
+output:
+  html_document:
+    theme: darkly
+    df_print: paged
+---
+### Loading essential libraries
+##### Leaflet is an open source JavaScript library used to build web mapping applications. Leaflet will be used to plot the coordinates of destinations on the world map.
+```{r warning = FALSE, message=FALSE}
+library(DBI)
+library(RODBC)
+library(odbc)
+library(dbplyr)
+library(leaflet)
+library(htmlwidgets)
+library(maps)
+pacman::p_load(pacman, dplyr, GGally, ggplot2, ggthemes, 
+  ggvis, httr, lubridate, plotly, rio, rmarkdown, shiny, 
+  stringr, tidyr, psych) 
+con <- DBI::dbConnect(odbc::odbc(), "PostgreSQL30")
+```
+
+
+
+
+
+
+##### A reference connection to the table dfff (as seen in the data cleaning phase) is created.
+```{r warning = FALSE, message=FALSE}
+db <- tbl(con, "dfff") #taking a reference to the remote database
+db
+```
+
+
+
+
+
+##### The flights of 1987, between a time period of October to December, shall be used. The datasets are split based on these respesctive months.
+```{r warning = FALSE, message=FALSE}
+coors <- db  %>% collect()
+Oct <- coors  %>%filter(month(date)=='10') 
+Nov <- coors  %>%filter(month(date)=='11') 
+Dec <- coors  %>%filter(month(date)=='12') 
+```
+
+
+
+
+
+## October flights destination
+```{r warning = FALSE, message=FALSE}
+Oct_Map <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng = -74.0060, lat = 40.7128, zoom = 10) %>%
+# Adding clusterOptions = markerClusterOptions()
+  addMarkers(lng = Oct$long, lat = Oct$lat, 
+               clusterOptions = 
+               markerClusterOptions())
+Oct_Map
+```
+
+
+
+
+
+
+## November flights destination
+```{r warning = FALSE, message=FALSE}
+Nov_Map <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng = -74.0060, lat = 40.7128, zoom = 10) %>%
+# Adding clusterOptions = markerClusterOptions()
+  addMarkers(lng = Nov$long, lat = Nov$lat, 
+               clusterOptions = 
+               markerClusterOptions())
+
+Nov_Map
+```
+
+
+
+
+
+
+## December flights destination
+```{r warning = FALSE, message=FALSE}
+Dec_Map <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng = -74.0060, lat = 40.7128, zoom = 10) %>%
+# Adding clusterOptions = markerClusterOptions()
+  addMarkers(lng = Dec$long, lat = Dec$lat, 
+               clusterOptions = 
+               markerClusterOptions())
+
+Dec_Map
+```
+
+
+
+
+
+## Alternative visualization method using ggplot
+```{r warning = FALSE, message=FALSE}
+library(maps)
+library(mapdata)
+library(gganimate)
+library(gifski)
+```
+
+
+
+
+
+#### Grouping flights by their dates and destination, and adding a frequency value.
+```{r warning = FALSE, message=FALSE}
+df <- coors %>% count(date, lat, long)
+df
+```
+
+
+
+
+
+#### Creating a base map
+```{r warning = FALSE, message=FALSE}
+state <- map_data("state")
+
+basemap <- ggplot(data=state, aes(x=long, y=lat, fill=region, group=group)) + 
+  geom_polygon(color = "black", fill="white") + 
+  guides(fill=FALSE) + 
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) + 
+  ggtitle('U.S. Map with States') 
+  
+basemap
+```
+
+
+
+
+
+#### Adding points to the map
+##### The max range for latitude and longitude values have to be specefied. If not, the map would be very small.
+```{r warning = FALSE, message=FALSE}
+min_long <- -125
+max_long <- -68.01197
+min_lat <- 25
+max_lat <- 50
+
+map_with_data <- basemap +
+  geom_point(data = df, aes(x = long, y = lat, fill = 'black' ,color=n, size=n, group=date))  +
+  coord_quickmap(xlim = c(min_long, max_long),  ylim = c(min_lat, max_lat)) 
+
+map_with_data
+```
+
+
+
+
+
+#### The frames of the map is then animated according to the number of distinct days in the dataset, which in this case is 92.
+```{r warning = FALSE, message=FALSE}
+df %>% summarise(count = n_distinct(date))
+map_with_animation <- map_with_data +
+  transition_time(date) +
+  ggtitle('Date: {frame_time}',
+          subtitle = 'Frame {frame} of {nframes}') +
+  shadow_mark() +
+  scale_color_gradientn(colors = rainbow(7))
+
+animate(map_with_animation, nframes = 92, fps = 2)
+anim_save("flight_map.gif", map_with_animation, nframes = 92, fps = 3)
+```

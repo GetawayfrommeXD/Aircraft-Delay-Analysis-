@@ -1,0 +1,163 @@
+---
+title: 'Question 1:  When is the best time of day, day of the week, and time of year
+  to fly to minimise delays?'
+author: "Ren Ern"
+date: '2022-03-21'
+output:
+  html_document:
+    theme: darkly
+    df_print: paged
+---
+### Arrival Delay vs Departure Delay
+##### For this question, departure delay shall be focused on. This is because even if a airplane arrives early, it cannot take off on it's next flight any earlier then the scheduled time of departure as the passengers will not be ready. Hence, looking to minimise departure delay is more important from the context of the airport and it's operations.
+##### The table df, which contains the data for flights of 2006 and 2007 will be used throughout this section.
+
+
+
+### Loading essential libraries
+##### The dplyr library for future data analysis and exploratory on the data set. 
+The dbplyr library allows for remote connection to the database. dbplyr converts dplyr queries into an appropriate SQL query. 
+
+
+```{r, message = FALSE, warning = FALSE}
+library(DBI)
+library(RODBC)
+library(odbc)
+library(dbplyr)
+pacman::p_load(pacman, dplyr, GGally, ggplot2, ggthemes, 
+  ggvis, httr, lubridate, plotly, rio, rmarkdown, shiny, 
+  stringr, tidyr, psych) 
+con <- DBI::dbConnect(odbc::odbc(), "PostgreSQL30")
+```
+
+
+
+##### A reference connection to the table df (as seen in the data cleaning phase) is created.
+##### Using show_query(), one can see the translation of the R code into SQL syntax.
+```{r}
+db <- tbl(con, "df") #taking a reference to the remote database
+db %>% show_query()
+db
+```
+
+
+
+## When is the best time of the year to fly?
+##### In this case, time of year is taken to mean "season". The delays are grouped by their season and the average departure time for each of the 4 seasons are caculated.
+The delay is only taken into consideration if the average departure delay is more or equal to 15 minutes.  The International Civil Aviation Organization (ICAO) uses this measure as a KPI.
+
+
+## Delay by season
+```{r, message=FALSE, warning=FALSE}
+delay_by_season <- db %>% filter(departure_delay>=15)%>% 
+  group_by(season) %>% 
+  summarize(Average_Departure_Delay = round(mean(departure_delay),2)) %>% collect()
+
+p<-ggplot(data=delay_by_season, aes(x=season, y=Average_Departure_Delay, fill = season )) + geom_text(aes(label=Average_Departure_Delay), vjust=0) +
+  geom_bar(stat="identity", width=0.2)
+p
+
+```
+
+
+
+##### According to the bar chart, the best time to travel is in Winter, with the lowest average departure delay of 35.3.
+The season with the highest average departure delay is Summer with a value of 35.8
+However, the departure delays for each season does not differ by a lot. Perhaps the delays will have a greater difference across different months.
+
+
+
+
+
+
+## Delay by Month
+```{r,  warning = FALSE}
+month_delay <- db %>% filter(departure_delay>=15) %>% mutate (
+  month = month(scheduled_departure)
+  )%>%
+  group_by(month) %>% 
+  summarize(Average_Departure_Delay = round(mean(departure_delay),2)) %>% collect()
+
+p<-ggplot(data=month_delay, aes(x=reorder(month, month.abb), y=Average_Departure_Delay, fill=month.abb )) + geom_text(aes(label=Average_Departure_Delay), vjust=0) +
+  geom_bar(stat="identity", width=0.5) 
+p
+
+```
+
+##### As expected, the greatest average departure delay was found for the month of December. This is likely due to the holiday season, where more people book flights.
+##### The months with the lowest departure delays are April and May.
+
+
+
+
+
+
+## Delay by Day of week
+```{r,message=FALSE, warning=FALSE}
+season_day_delay <- db %>% filter(departure_delay>=15) %>% mutate (
+  dayofweek = wday(scheduled_departure))  %>% 
+  group_by(season, dayofweek) %>% 
+  summarize(Average_Departure_Delay = mean(departure_delay)) %>% collect()
+
+ggplot(season_day_delay, aes(x=dayofweek,y=Average_Departure_Delay, colour=dayofweek, group = season))+
+  facet_wrap("season") + geom_line() + geom_point() 
+
+```
+
+###### It seems like for all the seasons, the best day of the week to travel for the least delays are Sunday.
+
+
+
+
+
+
+
+## Best time of the day to travel
+```{r,message=FALSE, warning=FALSE}
+season_time_delay <- db %>%  filter(departure_delay>=15) %>%
+      group_by(season, departure_time) %>%
+      summarize(Average_Departure_Delay = mean(departure_delay)) %>% collect()
+
+season_time_delay$departure_time<-as.POSIXct(as.numeric(as.POSIXct(season_time_delay$departure_time)) %% 86400, origin = "2000-01-01")
+
+season_time_delay %>%
+  ggplot(aes(x = departure_time, y = Average_Departure_Delay, color = season)) +
+  geom_line() +
+  facet_wrap("season") +
+  ylab("Average Departure Delay") +
+  xlab("Time of Day") +
+  scale_y_continuous() +
+  scale_x_datetime(date_breaks = "4 hours", 
+                   date_labels = "%H")
+```
+
+
+##### The graphs do not offer much insight for times from 8am to 2pm, as there is a lot of fluctations between this period. 
+However, from 2pm to 3pm, there is a large spike in the average departure delay.
+From 4pm to 6am, there is a slow but gradual increase in delays.
+
+
+
+
+
+
+## Best block of time during the day to travel
+##### The time period is separated into distinct blocks of time.
+```{r, message=FALSE, warning=FALSE}
+season_time_delay <- db %>%  filter(departure_delay>=15) %>% mutate (dep_time = case_when(
+      hour(scheduled_departure) %in% 16:20 ~ "4pm - 8pm",
+      hour(scheduled_departure) %in%  1:4  ~ "1am - 4am",
+      hour(scheduled_departure) %in%  5:8  ~ "5am - 8am",
+      hour(scheduled_departure) %in%  9:12  ~ "9am - 12pm",
+      hour(scheduled_departure) %in%  12:15  ~ "12pm - 3pm",
+      TRUE ~ "9pm - 12am")) %>%
+      group_by(season, dep_time) %>%
+      summarize(Average_Departure_Delay = round(mean(departure_delay),2)) %>% collect()
+
+season_time_delay %>% ggplot(aes(x = dep_time, y=Average_Departure_Delay , fill = dep_time)) +facet_wrap("season")+
+geom_bar(stat="identity", width=.5, position = "dodge", ) + geom_text(aes(label=Average_Departure_Delay), vjust=0) +
+labs(title="Average Turn Delay across Time of Day",y = 'Average Turn Delay Duration',x = 'Time of Day', fill='') + scale_x_discrete(guide = guide_axis(n.dodge=2.5))
+```
+
+It seems that 5am to 8am is the best time to travel for all seasons.
+The 4pm to 8pm block has the longest delays.
